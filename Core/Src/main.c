@@ -34,7 +34,7 @@
 /* USER CODE BEGIN PD */
 #define  float32_t			float
 
-#define TOTAL_IC			2
+#define TOTAL_IC			1
 #define TOTAL_VOLTAGES		12
 #define TOTAL_TEMPERATURES	8
 #define CELL_UV				2.85
@@ -51,6 +51,7 @@
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi3;
 
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
@@ -84,6 +85,7 @@ static void MX_GPIO_Init(void);
 static void MX_SPI3_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -128,10 +130,9 @@ int main(void)
   MX_SPI3_Init();
   MX_SPI1_Init();
   MX_TIM3_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   //TODO:error counter init
-
-  LTC681x_initSPI(&hspi3);
   cs_high();
   LTC6811_init_cfg(TOTAL_IC, cellASIC);
   //This for loop initializes the configuration register variables
@@ -147,7 +148,7 @@ int main(void)
   //writes the configuration variables in the configuration registers via SPI
   LTC6811_wrcfg(TOTAL_IC,cellASIC);
 
-  //HAL_TIM_Base_Start(&htim3);
+  HAL_TIM_Base_Start_IT(&htim3);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -157,18 +158,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-
-	  //Blink LED
-	  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_6);
-
-	  //Voltage conversion
-	  HAL_readCellVoltages();
-
-	 //Temperature conversion
-	  HAL_readCellTemperatures();
-
-	 //Check for voltage differences and balancing logic
   }
   /* USER CODE END 3 */
 }
@@ -292,6 +281,64 @@ static void MX_SPI3_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 63;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 999999;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_OC_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_TIMING;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_OC_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
@@ -329,7 +376,7 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_OC1REF;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
   {
@@ -393,10 +440,10 @@ static void HAL_readCellVoltages()
 	uint32_t i;
 	uint32_t j;
 
-	 wakeup_idle(TOTAL_IC);
+	 //wakeup_idle(TOTAL_IC);
 	 LTC6811_adcv(MD_27KHZ_14KHZ, DCP_DISABLED, CELL_CH_ALL);
 
-	 HAL_Delay(10);
+	 delay_us(10000);
 
 	 wakeup_idle(TOTAL_IC);
 	 cvError = LTC6811_rdcv(CELL_CH_ALL, TOTAL_IC, cellASIC);
@@ -445,7 +492,7 @@ static void HAL_readCellTemperatures()
 			LTC6811_stcomm(TOTAL_IC);
 		 }
 		 //Wait for mux to each ASIC to stabilize, read and parse MUX
-		 HAL_Delay(10);
+		 delay_us(10000);
 
 		 //MD = 0x02  - 7kHz mode
 		 //CHG = 0x01 - measure on GPIO1 (MUXTEMP)
@@ -467,6 +514,35 @@ static void HAL_readCellTemperatures()
 
 }
 
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+	uint8_t pTxData[10]={1,2,3,4,5,6,7,8,9,10};
+	uint8_t pRxData[10];
+	uint32_t Timeout_ms = 500;
+
+	if(htim==&htim3)
+	{
+		  //Toggle LED
+		  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_6);
+
+		  //Wakeup
+		  wakeup_idle(TOTAL_IC);
+
+		  //Turn on voltage reference
+		  LTC681x_wrcfg(TOTAL_IC, cellASIC);
+
+		  //Voltage conversion
+		  HAL_readCellVoltages();
+
+		  //cs_low();
+		  //HAL_SPI_TransmitReceive(&hspi3, pTxData, pRxData, 10, Timeout_ms);
+		  //cs_high();
+		 //Temperature conversion
+		  //HAL_readCellTemperatures();
+
+		 //Check for voltage differences and balancing logic
+	}
+}
 /* USER CODE END 4 */
 
 /**

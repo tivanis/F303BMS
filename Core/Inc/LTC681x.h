@@ -49,12 +49,8 @@
 //#include <Arduino.h>
 //#define LINDUINO
 
-
-/******/
-//MICROCONTROLLER SPECIFIC INCLUDES
-#include "stm32f3xx_hal.h"
-/******/
-
+//Include microcontroller drivers written to drive STM32 HAL
+#include "BMSDriver.h"
 
 #ifdef MBED
 #include "mbed.h"//remove when using with LINDUINO
@@ -119,9 +115,6 @@
 #define STAT 3
 #define CFGR 0
 #define CFGRB 4
-
-#define LTC6811_CHIP_SELECT_GPIO_PORT	GPIOA
-#define LTC6811_CHIP_SELECT_GPIO_PIN	GPIO_PIN_15
 
 /*! Cell Voltage data structure. */
 typedef struct
@@ -776,31 +769,5 @@ void LTC681x_set_cfgr_ov(uint8_t nIC, //!< Current IC
                          cell_asic *ic, //!< A two dimensional array that will store the data
                          uint16_t ov //!< The OV value
 						 );
-
-
-void cs_low(void);
-
-
-void cs_high(void);
-
-void LTC681x_initSPI(SPI_HandleTypeDef *receivedHandlePointer);
-
-void spi_write(uint8_t data); //Bytes to be written on the SPI port
-
-void spi_write_array(uint8_t len, // Option: Number of bytes to be written on the SPI port
-                     uint8_t data[] //Array of bytes to be written on the SPI port
-                    );
-
-/*
- Writes and read a set number of bytes using the SPI port.
-*/
-
-void spi_write_read(uint8_t tx_Data[],//array of data to be written on SPI port
-                    uint8_t tx_len, //length of the tx data arry
-                    uint8_t *rx_data,//Input: array that will store the data read by the SPI port
-                    uint8_t rx_len //Option: number of bytes to be read from the SPI port
-                   );
-
-uint8_t spi_read_byte(uint8_t tx_dat);//name conflicts with linduino also needs to take a byte as a parameter
 
 #endif

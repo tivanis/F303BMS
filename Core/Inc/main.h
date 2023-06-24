@@ -35,6 +35,8 @@ extern "C" {
 #include "LTC6811.h"
 #include "LTC681x.h"
 
+#include "delay.h"
+
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -59,6 +61,8 @@ void Error_Handler(void);
 static void HAL_readCellVoltages();
 
 static void HAL_readCellTemperatures();
+
+static void HAL_delay_us();
 
 /* USER CODE END EFP */
 

@@ -209,7 +209,7 @@ void TIM3_IRQHandler(void)
   /* USER CODE END TIM3_IRQn 0 */
   HAL_TIM_IRQHandler(&htim3);
   /* USER CODE BEGIN TIM3_IRQn 1 */
-  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_6);
+
 
   /* USER CODE END TIM3_IRQn 1 */
 }
