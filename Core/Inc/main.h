@@ -34,8 +34,9 @@ extern "C" {
 /* USER CODE BEGIN Includes */
 #include "LTC6811.h"
 #include "LTC681x.h"
-
 #include "delay.h"
+
+#include <math.h>
 
 /* USER CODE END Includes */
 
@@ -72,6 +73,42 @@ static void HAL_delay_us();
 #define LEDG_Pin GPIO_PIN_7
 #define LEDG_GPIO_Port GPIOC
 /* USER CODE BEGIN Private defines */
+
+#define  float32_t			float
+
+//#define fabsf(x) (((x)<0) ? -(x) : (x))
+
+#define TOTAL_IC			(1U)
+#define TOTAL_VOLTAGES		(12U)
+#define TOTAL_TEMPERATURES	(8U)
+#define CELL_UV				(2.85f)
+#define CELL_OV				(3.65f)
+#define CELL_NONZEROV		(0.50f)
+#define ADG_728_ADDRESS		(0b1001100)
+#define HAL_BALVOLTAGETHRESHOLD (0.05f)
+#define HAL_BALCURRENTTHRESHOLD (-0.5f)
+#define HAL_BALMAXSTATECNT	(10U)
+#define HAL_BALMAXBALDURATION (60U)
+
+typedef enum
+{
+	HAL_BALSTDBY=0,
+	HAL_BALPREPARE=1,
+	HAL_BALMSR=2,
+	HAL_BALON=3
+
+} HAL_BALState_e;
+
+typedef enum
+{
+	HAL_GLOBALSTDBY=0,
+	HAL_GLOBALCONTACTORON=1,
+	HAL_GLOBALCONTACTOROFF=2,
+	HAL_GLOBALCELLUV=3,
+	HAL_GLOBALCELLOV=4
+
+} HAL_GlobalState_e;
+
 
 /* USER CODE END Private defines */
 

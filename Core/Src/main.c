@@ -32,14 +32,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define  float32_t			float
 
-#define TOTAL_IC			1
-#define TOTAL_VOLTAGES		12
-#define TOTAL_TEMPERATURES	8
-#define CELL_UV				2.85
-#define CELL_OV				3.65
-#define ADG_728_ADDRESS		0b1001100
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -63,7 +56,7 @@ float32_t temperatures[TOTAL_IC][TOTAL_TEMPERATURES];
 bool REFON = true; //!< Reference Powered Up Bit (true means Vref remains powered on between conversions)
 bool ADCOPT = true; //!< ADC Mode option bit	(true chooses the second set of ADC frequencies)
 bool gpioBits_a[5] = {false,false,false,false,false}; //!< GPIO Pin Control // Gpio 1,2,3,4,5 (false -> pull-down on)
-bool dccBits_a[12] = {false,false,false,false,false,false,false,false,false,false,false,false}; //!< Discharge cell switch //Dcc 1,2,3,4,5,6,7,8,9,10,11,12 (all false -> no discharge enabled)
+bool dccBits_a[TOTAL_IC][TOTAL_VOLTAGES];//!< Discharge cell switch //Dcc 1,2,3,4,5,6,7,8,9,10,11,12 (all false -> no discharge enabled)
 bool dctoBits[4] = {false, false, false, false}; //!< Discharge time value // Dcto 0,1,2,3	(all false -> discharge timer disabled)
 uint16_t cellOV = (uint16_t) (CELL_OV*625.0f); // ovCount = U[microvolts]/(16*100)
 uint16_t cellUV = (uint16_t) (CELL_UV*625.0f);
@@ -76,6 +69,14 @@ int NV [TOTAL_IC][TOTAL_VOLTAGES];	//total number of voltage measurement errors 
 int NT [TOTAL_IC][TOTAL_TEMPERATURES];	//total number of temperature measurement errors per IC per cell
 int NPEC_V = 0;	//number of communication errors in cell voltage measurement
 int NPEC_T = 0;	//number of communication errors in temperature voltage measurement
+
+//BAL Variables
+HAL_BALState_e balancingState = HAL_BALSTDBY;
+uint32_t balancingCounter;
+float32_t batteryPackCurrent;
+
+//GLOBAL STATE VARIABLE
+HAL_GlobalState_e globalState = HAL_GLOBALSTDBY;
 
 /* USER CODE END PV */
 
@@ -132,11 +133,22 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  //Set DCCBits to false (balancing off)
+  for(uint16_t currentIC=0; currentIC<TOTAL_IC; currentIC++)
+  {
+	  for(uint16_t currentCell=0; currentCell<TOTAL_VOLTAGES; currentCell++)
+	  {
+		  dccBits_a[currentIC][currentCell] = false;
+	  }
+
+  }
+
   //TODO:error counter init
   cs_high();
+  //Clear array for initialization
   LTC6811_init_cfg(TOTAL_IC, cellASIC);
   //This for loop initializes the configuration register variables
-  for (uint8_t current_ic = 0; current_ic<TOTAL_IC;current_ic++)
+  for (uint16_t current_ic = 0; current_ic<TOTAL_IC;current_ic++)
   {
 	  LTC6811_set_cfgr(current_ic,cellASIC,REFON,ADCOPT,gpioBits_a,dccBits_a, dctoBits, cellUV, cellOV);
   }
@@ -460,6 +472,22 @@ static void HAL_readCellVoltages()
 		 cvError =0;
 		 //TODO: CAN/UART message thet received voltage is faulty
 	 }
+	 //TODO: check if there is overvoltage or undervoltage and enable/disable contactor
+	 for(i=0; i<TOTAL_IC; i++)
+	 {
+		 for(j=0; j<12; j++)
+		 {
+			 if(voltages[i][j]>=CELL_OV)
+			 {
+				 //global state change
+				 globalState=HAL_GLOBALCELLOV;
+			 }
+			 if(voltages[i][j]<=CELL_UV && voltages[i][j]>=CELL_NONZEROV)
+			 {
+				 globalState=HAL_GLOBALCELLUV;
+			 }
+		 }
+	 }
 }
 
 static void HAL_readCellTemperatures()
@@ -467,8 +495,6 @@ static void HAL_readCellTemperatures()
 	uint32_t i;
 	uint32_t j;
 
-	uint8_t dataH;
-	uint8_t dataL;
 	uint8_t temp;
 
 	//Go over each sensor (per sensor conversion is slow so it is in an outer loop)
@@ -481,18 +507,22 @@ static void HAL_readCellTemperatures()
 			temp = 0x01<<i;
 			//Write to local MCU data structure to prepare data to be sent then send data
 			cellASIC[j].com.tx_data[0] = 0b01101001; 			//ICOM0 = START,  ADG728AddrH
-			cellASIC[j].com.tx_data[1] = 0b10000000; 			//ADG728AddrL,  FCOM0 = MasterACK
-			cellASIC[j].com.tx_data[2] = (0b00000000 | temp);	//ICOM1 = BLANK, ADG728SelH
-			cellASIC[j].com.tx_data[3] = (0b00000000 | temp);	//ADG728SelL, FCOM1 = MasterAck
-			cellASIC[j].com.tx_data[4] = 0b00010000; 			//ICOM2 = STOP, 0000
-			cellASIC[j].com.tx_data[5] = 0b00000000; 			//0000, FCOM2 = MasterAck
+			cellASIC[j].com.tx_data[1] = 0b10001000; 			//ADG728AddrL,  FCOM0 = MasterNACK
+			cellASIC[j].com.tx_data[2] = (0b00000000 | (temp>>4));	//ICOM1 = BLANK, ADG728SelH
+			cellASIC[j].com.tx_data[3] = (0b00001001 | (temp<<4));	//ADG728SelL, FCOM1 = STOP
+			cellASIC[j].com.tx_data[4] = 0b01110000; 			//ICOM2 = No Transmit, 0000
+			cellASIC[j].com.tx_data[5] = 0b00000000; 			//0000, FCOM2 = BLANK
 			//WRCOMM command
 			LTC6811_wrcomm(TOTAL_IC, cellASIC);
-			//STCOMM command (start I2C communication)
-			LTC6811_stcomm(TOTAL_IC);
+			delay_us(1000);
+			//STCOMM command (start I2C communication), it will send stcomm+pec (4 bytes) + 3 bytes * the number sent
+			LTC6811_stcomm(3*TOTAL_IC);
+			delay_us(1000);
+			LTC6811_rdcomm(TOTAL_IC,cellASIC);
+			delay_us(1000);
 		 }
 		 //Wait for mux to each ASIC to stabilize, read and parse MUX
-		 delay_us(10000);
+		 delay_us(5000);
 
 		 //MD = 0x02  - 7kHz mode
 		 //CHG = 0x01 - measure on GPIO1 (MUXTEMP)
@@ -514,33 +544,142 @@ static void HAL_readCellTemperatures()
 
 }
 
+void HAL_runBalancing()
+{
+	uint16_t i,j;
+	bool balanceNeededFlag=false;
+	float_t vmin=voltages[0][0];
+	bool dccBitsSend[TOTAL_VOLTAGES];
+
+	//STANDBY STATE
+	if(balancingState==HAL_BALSTDBY)
+	{
+		//Find the minimum voltage HAL_readCellVoltages() has run before
+		for(i=0; i<TOTAL_IC; i++)
+		{
+			for(j=0; j<TOTAL_VOLTAGES; j++)
+			{
+				if(voltages[i][j]<=vmin)
+				{
+					vmin=voltages[i][j];
+				}
+			}
+		}
+		//Find which of the cells satisfy threshold and write to array
+		for(i=0; i<TOTAL_IC; i++)
+		{
+			for(j=0; j<TOTAL_VOLTAGES; j++)
+			{
+				if((voltages[i][j]-vmin)>HAL_BALVOLTAGETHRESHOLD)
+				{
+					//Do balance only existing/healthy cells
+					if(voltages[i][j]>=CELL_UV)
+					{
+						dccBits_a[i][j]=true;
+						balanceNeededFlag=true;
+					}
+				}
+				else
+				{
+					dccBits_a[i][j]=false;
+				}
+			}
+		}
+		if(balanceNeededFlag==true)
+		{
+			balanceNeededFlag=false;
+			balancingState=HAL_BALPREPARE;
+		}
+	}
+
+	//PREPARE STATE
+	if(balancingState==HAL_BALPREPARE)
+	{
+		if(batteryPackCurrent<HAL_BALCURRENTTHRESHOLD)
+		{
+			balancingCounter++;
+			if(balancingCounter>=HAL_BALMAXSTATECNT)
+			{
+				balancingCounter=0;
+				balancingState=HAL_BALON;
+			}
+		}
+		else
+		{
+			balancingCounter=0;
+			balancingState=HAL_BALSTDBY;
+		}
+
+	}
+
+	//BALANCE ON STATE
+	if(balancingState==HAL_BALON)
+	{
+		balancingCounter++;
+		if(balancingCounter>=HAL_BALMAXBALDURATION)
+		{
+			balancingCounter=0;
+			balancingState=HAL_BALSTDBY;
+			//Turn off balancing
+			for(i=0; i<TOTAL_IC; i++)
+			{
+				for(j=0; j<TOTAL_VOLTAGES; j++)
+				{
+					dccBits_a[i][j]=false;
+					dccBitsSend[j]=false;
+				}
+				LTC6811_set_cfgr(i,cellASIC,REFON,ADCOPT,gpioBits_a,dccBitsSend, dctoBits, cellUV, cellOV);
+				LTC6811_wrcfg(TOTAL_IC, cellASIC);
+				delay_us(1000);
+			}
+
+		}
+		//TODO: add additional conditions (like temperature)
+		if(batteryPackCurrent<=HAL_BALCURRENTTHRESHOLD)
+		{
+			//Turn on balancing
+			for(i=0; i<TOTAL_IC; i++)
+			{
+				for(j=0; j<TOTAL_VOLTAGES; j++)
+				{
+					dccBitsSend[j]=dccBits_a[i][j];
+				}
+				LTC6811_set_cfgr(i,cellASIC,REFON,ADCOPT,gpioBits_a,dccBitsSend, dctoBits, cellUV, cellOV);
+				LTC6811_wrcfg(TOTAL_IC, cellASIC);
+				delay_us(1000);
+			}
+		}
+		else
+		{
+			balancingState=HAL_BALSTDBY;
+		}
+	}
+}
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	uint8_t pTxData[10]={1,2,3,4,5,6,7,8,9,10};
-	uint8_t pRxData[10];
-	uint32_t Timeout_ms = 500;
-
 	if(htim==&htim3)
 	{
 		  //Toggle LED
 		  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_6);
 
+		  //TODO:Get current
+		  batteryPackCurrent=-0.51f;
+
 		  //Wakeup
 		  wakeup_idle(TOTAL_IC);
 
 		  //Turn on voltage reference
-		  LTC681x_wrcfg(TOTAL_IC, cellASIC);
+		  LTC6811_wrcfg(TOTAL_IC, cellASIC);
 
 		  //Voltage conversion
 		  HAL_readCellVoltages();
 
-		  //cs_low();
-		  //HAL_SPI_TransmitReceive(&hspi3, pTxData, pRxData, 10, Timeout_ms);
-		  //cs_high();
-		 //Temperature conversion
-		  //HAL_readCellTemperatures();
+		  //TODO: Temperature conversion
+		  HAL_readCellTemperatures();
 
-		 //Check for voltage differences and balancing logic
+		  //Run balancing algorithm and set appropriate bits
+		  HAL_runBalancing();
 	}
 }
 /* USER CODE END 4 */
