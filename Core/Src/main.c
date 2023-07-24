@@ -55,7 +55,7 @@ float32_t temperatures[TOTAL_IC][TOTAL_TEMPERATURES];
 //LTC CONFIGURATION VARIABLES
 bool REFON = true; //!< Reference Powered Up Bit (true means Vref remains powered on between conversions)
 bool ADCOPT = true; //!< ADC Mode option bit	(true chooses the second set of ADC frequencies)
-bool gpioBits_a[5] = {false,false,false,false,false}; //!< GPIO Pin Control // Gpio 1,2,3,4,5 (false -> pull-down on)
+bool gpioBits_a[5] = {false,false,false,true,true}; //!< GPIO Pin Control // Gpio 1,2,3,4,5 (false -> pull-down on)
 bool dccBits_a[TOTAL_IC][TOTAL_VOLTAGES];//!< Discharge cell switch //Dcc 1,2,3,4,5,6,7,8,9,10,11,12 (all false -> no discharge enabled)
 bool dctoBits[4] = {false, false, false, false}; //!< Discharge time value // Dcto 0,1,2,3	(all false -> discharge timer disabled)
 uint16_t cellOV = (uint16_t) (CELL_OV*625.0f); // ovCount = U[microvolts]/(16*100)
@@ -514,12 +514,12 @@ static void HAL_readCellTemperatures()
 			cellASIC[j].com.tx_data[5] = 0b00000000; 			//0000, FCOM2 = BLANK
 			//WRCOMM command
 			LTC6811_wrcomm(TOTAL_IC, cellASIC);
-			delay_us(1000);
+			delay_us(5000);
 			//STCOMM command (start I2C communication), it will send stcomm+pec (4 bytes) + 3 bytes * the number sent
 			LTC6811_stcomm(3*TOTAL_IC);
-			delay_us(1000);
+			delay_us(5000);
 			LTC6811_rdcomm(TOTAL_IC,cellASIC);
-			delay_us(1000);
+			delay_us(5000);
 		 }
 		 //Wait for mux to each ASIC to stabilize, read and parse MUX
 		 delay_us(5000);

@@ -27,4 +27,7 @@ void spi_write_read(uint8_t tx_Data[],	//array of data to be written on SPI port
 
 uint8_t spi_read_byte(uint8_t tx_dat); 	//name conflicts with linduino also needs to take a byte as a parameter
 
+void HAL_SPI_TransmitReceiveFast(SPI_HandleTypeDef *hspi, uint8_t *pTxData, uint8_t *pRxData, uint16_t Size,
+        uint32_t Timeout);
+
 #endif
