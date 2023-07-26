@@ -6,6 +6,7 @@
 
 #define BMS_CHIP_SELECT_GPIO_PORT	GPIOA
 #define BMS_CHIP_SELECT_GPIO_PIN	GPIO_PIN_15
+#define BMS_SPI_TIMEOUT_MS			5
 
 extern SPI_HandleTypeDef hspi3;
 

@@ -43,6 +43,8 @@
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi3;
+DMA_HandleTypeDef hdma_spi3_rx;
+DMA_HandleTypeDef hdma_spi3_tx;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
@@ -55,7 +57,7 @@ float32_t temperatures[TOTAL_IC][TOTAL_TEMPERATURES];
 //LTC CONFIGURATION VARIABLES
 bool REFON = true; //!< Reference Powered Up Bit (true means Vref remains powered on between conversions)
 bool ADCOPT = true; //!< ADC Mode option bit	(true chooses the second set of ADC frequencies)
-bool gpioBits_a[5] = {false,false,false,true,true}; //!< GPIO Pin Control // Gpio 1,2,3,4,5 (false -> pull-down on)
+bool gpioBits_a[5] = {true,true,true,true,true}; //!< GPIO Pin Control // Gpio 1,2,3,4,5 (false -> pull-down on)
 bool dccBits_a[TOTAL_IC][TOTAL_VOLTAGES];//!< Discharge cell switch //Dcc 1,2,3,4,5,6,7,8,9,10,11,12 (all false -> no discharge enabled)
 bool dctoBits[4] = {false, false, false, false}; //!< Discharge time value // Dcto 0,1,2,3	(all false -> discharge timer disabled)
 uint16_t cellOV = (uint16_t) (CELL_OV*625.0f); // ovCount = U[microvolts]/(16*100)
@@ -83,6 +85,7 @@ HAL_GlobalState_e globalState = HAL_GLOBALSTDBY;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_SPI3_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM3_Init(void);
@@ -128,6 +131,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_SPI3_Init();
   MX_SPI1_Init();
   MX_TIM3_Init();
@@ -410,6 +414,25 @@ static void MX_TIM3_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA2_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Channel1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Channel1_IRQn);
+  /* DMA2_Channel2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Channel2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Channel2_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -470,7 +493,7 @@ static void HAL_readCellVoltages()
 	 {
 		 //Message readback voltage failure. Reset error counter
 		 cvError =0;
-		 //TODO: CAN/UART message thet received voltage is faulty
+		 //TODO: CAN/UART message that received voltage is faulty
 	 }
 	 //TODO: check if there is overvoltage or undervoltage and enable/disable contactor
 	 for(i=0; i<TOTAL_IC; i++)
@@ -490,6 +513,115 @@ static void HAL_readCellVoltages()
 	 }
 }
 
+//static void HAL_readCellTemperatures()
+//{
+//	uint32_t i;
+//	uint32_t j;
+//
+//	uint8_t temp;
+//
+//	//Go over each sensor (per sensor conversion is slow so it is in an outer loop)
+//	for(i=0; i<TOTAL_TEMPERATURES; i++)
+//	{
+//		//Go over each ASIC
+//		for(j=0; j<TOTAL_IC; j++)
+//		{
+//			//Select the mux channel on ADG728: ch. read seq: 4,5,6,7,0,1,2,3
+//			temp = 0x01<<i;
+//			//Write to local MCU data structure to prepare data to be sent then send data
+//			cellASIC[j].com.tx_data[0] = 0b01101001; 			//ICOM0 = START,  ADG728AddrH
+//			cellASIC[j].com.tx_data[1] = 0b10001000; 			//ADG728AddrL,  FCOM0 = MasterNACK
+//			cellASIC[j].com.tx_data[2] = (0b00000000 | (temp>>4));	//ICOM1 = BLANK, ADG728SelH
+//			cellASIC[j].com.tx_data[3] = (0b00001001 | (temp<<4));	//ADG728SelL, FCOM1 = STOP
+//			cellASIC[j].com.tx_data[4] = 0b01110000; 			//ICOM2 = No Transmit, 0000
+//			cellASIC[j].com.tx_data[5] = 0b00000000; 			//0000, FCOM2 = BLANK
+//			//WRCOMM command
+//			LTC6811_wrcomm(TOTAL_IC, cellASIC);
+//			delay_us(5000);
+//			//STCOMM command (start I2C communication), it will send stcomm+pec (4 bytes) + 3 bytes * the number sent
+//			LTC6811_stcomm(3*TOTAL_IC);
+//			delay_us(5000);
+//			LTC6811_rdcomm(TOTAL_IC,cellASIC);
+//			delay_us(5000);
+//		 }
+//		 //Wait for mux to each ASIC to stabilize, read and parse MUX
+//		 delay_us(5000);
+//
+//		 //MD = 0x02  - 7kHz mode
+//		 //CHG = 0x01 - measure on GPIO1 (MUXTEMP)
+//		 LTC6811_adax(0x02, 0x01);
+//		 //Read and parse each temperature for all asics
+//		 for(j=0; j<TOTAL_IC; j++)
+//		 {
+//			 auxError = LTC6811_rdaux(0, TOTAL_IC, cellASIC);
+//			 //TODO: interpolation function
+//			 temperatures[j][i] = cellASIC[j].aux.a_codes[i];
+//		 }
+//	 }
+//	 if(auxError)
+//	 {
+//		 //Message readback temperature failure. Reset error counter
+//		 auxError =0;
+//		 //TODO: CAN/UART message thet received temperature is faulty
+//	 }
+//
+//}
+
+//static void HAL_readCellTemperatures()
+//{
+//	uint32_t i;
+//	uint32_t j;
+//
+//	uint8_t temp;
+//
+//	//Go over each cell asic
+//	for(i=0; i<TOTAL_IC; i++)
+//	{
+//		//Go over each sensor
+//		for(j=0; j<8; j++)
+//		{
+//			//Select the mux channel on ADG728: ch. read seq: 4,5,6,7,0,1,2,3
+//			temp = 0x01<<j;
+//			//Write to local MCU data structure to prepare data to be sent then send data
+//			cellASIC[i].com.tx_data[0] = 0b01101001; 			//ICOM0 = START,  ADG728AddrH
+//			cellASIC[i].com.tx_data[1] = 0b10001000; 			//ADG728AddrL,  FCOM0 = MasterNACK
+//			cellASIC[i].com.tx_data[2] = (0b00000000 | (temp>>4));	//ICOM1 = BLANK, ADG728SelH
+//			cellASIC[i].com.tx_data[3] = (0b00001001 | (temp<<4));	//ADG728SelL, FCOM1 = STOP
+//			cellASIC[i].com.tx_data[4] = 0b01110000; 			//ICOM2 = No Transmit, 0000
+//			cellASIC[i].com.tx_data[5] = 0b00000000; 			//0000, FCOM2 = BLANK
+//			//WRCOMM command
+//			LTC6811_wrcomm(TOTAL_IC, cellASIC);
+//			delay_us(5000);
+//			//STCOMM command (start I2C communication), it will send stcomm+pec (4 bytes) + 3 bytes * the number sent
+//			LTC6811_stcomm(3*TOTAL_IC);
+//			delay_us(5000);
+//			LTC6811_rdcomm(TOTAL_IC,cellASIC);
+//			delay_us(5000);
+//		 }
+//		 //Wait for mux to each ASIC to stabilize, read and parse MUX
+//		 delay_us(5000);
+//
+//		 //MD = 0x02  - 7kHz mode
+//		 //CHG = 0x01 - measure on GPIO1 (MUXTEMP)
+//		 LTC6811_adax(0x02, 0x01);
+//		 //Read and parse each temperature for all asics
+//		 for(j=0; j<TOTAL_IC; j++)
+//		 {
+//			 delay_us(1000);
+//			 auxError = LTC6811_rdaux(0, TOTAL_IC, cellASIC);
+//			 //TODO: interpolation function
+//			 temperatures[i][j] = cellASIC[i].aux.a_codes[j];
+//		 }
+//	 }
+//	 if(auxError)
+//	 {
+//		 //Message readback temperature failure. Reset error counter
+//		 auxError =0;
+//		 //TODO: CAN/UART message thet received temperature is faulty
+//	 }
+//
+//}
+
 static void HAL_readCellTemperatures()
 {
 	uint32_t i;
@@ -500,11 +632,13 @@ static void HAL_readCellTemperatures()
 	//Go over each sensor (per sensor conversion is slow so it is in an outer loop)
 	for(i=0; i<TOTAL_TEMPERATURES; i++)
 	{
-		//Go over each ASIC
+		//Fill all the local structures for ASICs (every ASIC is getting the same command)
+		//i.e. all ASICS are to read same mux channel
 		for(j=0; j<TOTAL_IC; j++)
 		{
 			//Select the mux channel on ADG728: ch. read seq: 4,5,6,7,0,1,2,3
 			temp = 0x01<<i;
+			//temp = 0x01;
 			//Write to local MCU data structure to prepare data to be sent then send data
 			cellASIC[j].com.tx_data[0] = 0b01101001; 			//ICOM0 = START,  ADG728AddrH
 			cellASIC[j].com.tx_data[1] = 0b10001000; 			//ADG728AddrL,  FCOM0 = MasterNACK
@@ -512,36 +646,40 @@ static void HAL_readCellTemperatures()
 			cellASIC[j].com.tx_data[3] = (0b00001001 | (temp<<4));	//ADG728SelL, FCOM1 = STOP
 			cellASIC[j].com.tx_data[4] = 0b01110000; 			//ICOM2 = No Transmit, 0000
 			cellASIC[j].com.tx_data[5] = 0b00000000; 			//0000, FCOM2 = BLANK
-			//WRCOMM command
-			LTC6811_wrcomm(TOTAL_IC, cellASIC);
-			delay_us(5000);
-			//STCOMM command (start I2C communication), it will send stcomm+pec (4 bytes) + 3 bytes * the number sent
-			LTC6811_stcomm(3*TOTAL_IC);
-			delay_us(5000);
-			LTC6811_rdcomm(TOTAL_IC,cellASIC);
-			delay_us(5000);
 		 }
-		 //Wait for mux to each ASIC to stabilize, read and parse MUX
-		 delay_us(5000);
 
-		 //MD = 0x02  - 7kHz mode
-		 //CHG = 0x01 - measure on GPIO1 (MUXTEMP)
-		 LTC6811_adax(0x02, 0x01);
-		 //Read and parse each temperature for all asics
-		 for(j=0; j<TOTAL_IC; j++)
-		 {
-			 auxError = LTC6811_rdaux(0, TOTAL_IC, cellASIC);
-			 //TODO: interpolation function
-			 temperatures[j][i] = cellASIC[j].aux.a_codes[i];
-		 }
-	 }
-	 if(auxError)
-	 {
-		 //Message readback temperature failure. Reset error counter
-		 auxError =0;
-		 //TODO: CAN/UART message thet received temperature is faulty
-	 }
+		//broadcast WRCOMM command to all asics
+		LTC6811_wrcomm(TOTAL_IC, cellASIC);
+		delay_us(5000);
+		//STCOMM command (start I2C communication), it will send stcomm+pec (4 bytes) + 3 bytes * the number sent
+		LTC6811_stcomm(3*TOTAL_IC);
+		delay_us(5000);
+		LTC6811_rdcomm(TOTAL_IC,cellASIC);
+		delay_us(5000);
+		//Wait for mux to each ASIC to stabilize, read and parse MUX
+		//delay_us(5000);
 
+		//wakeup_idle(TOTAL_IC);
+		//MD = 0x02  - 7kHz mode
+		//CHG = 0x01 - measure on GPIO1 (MUXTEMP)
+		LTC6811_adax(MD_7KHZ_3KHZ, AUX_CH_GPIO1);
+		//Read back converted voltages from all asics
+		delay_us(5000);
+		auxError = LTC6811_rdaux(AUX_CH_GPIO1, TOTAL_IC, cellASIC);
+
+		//Read and parse each temperature for all asics
+		for(j=0; j<TOTAL_IC; j++)
+		{
+			//TODO: interpolation function
+			temperatures[j][i] = cellASIC[j].aux.a_codes[0];
+			if(auxError)
+			{
+				//Message readback temperature failure. Reset error counter
+				//auxError =0;
+				//TODO: CAN/UART message that received temperature is faulty
+			}
+		}
+	 }
 }
 
 void HAL_runBalancing()
