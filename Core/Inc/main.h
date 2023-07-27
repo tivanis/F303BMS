@@ -35,6 +35,7 @@ extern "C" {
 #include "LTC6811.h"
 #include "LTC681x.h"
 #include "delay.h"
+#include "fmath.h"
 
 #include <math.h>
 
