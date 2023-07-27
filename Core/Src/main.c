@@ -55,6 +55,9 @@ float32_t voltages[TOTAL_IC][TOTAL_VOLTAGES];
 float32_t temperatures[TOTAL_IC][TOTAL_TEMPERATURES];
 float32_t temperatureCoefficients[6]={155.29, -232.43, 208.18, -96.574, 21.118, -1.75};
 uint32_t temperaturePolynomialDeg = 5;
+float32_t voltageCoefficients[3]={4.447, -0.2653, 0.003953};
+uint32_t voltagePolynomialDeg=2;
+float32_t SOC;
 
 //LTC CONFIGURATION VARIABLES
 bool REFON = true; //!< Reference Powered Up Bit (true means Vref remains powered on between conversions)
@@ -444,18 +447,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, LEDR_Pin|LEDG_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, CONTACTOR_Pin|LEDR_Pin|LEDG_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : LEDR_Pin LEDG_Pin */
-  GPIO_InitStruct.Pin = LEDR_Pin|LEDG_Pin;
+  /*Configure GPIO pins : CONTACTOR_Pin LEDR_Pin LEDG_Pin */
+  GPIO_InitStruct.Pin = CONTACTOR_Pin|LEDR_Pin|LEDG_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -486,7 +489,7 @@ static void HAL_readCellVoltages()
 	 cvError = LTC6811_rdcv(CELL_CH_ALL, TOTAL_IC, cellASIC);
 	 for(i=0; i<TOTAL_IC; i++)
 	 {
-		 for(j=0; j<12; j++)
+		 for(j=0; j<TOTAL_VOLTAGES; j++)
 		 {
 			 voltages[i][j] = cellASIC[i].cells.c_codes[j] * 0.0001;
 		 }
@@ -500,7 +503,7 @@ static void HAL_readCellVoltages()
 	 //TODO: check if there is overvoltage or undervoltage and enable/disable contactor
 	 for(i=0; i<TOTAL_IC; i++)
 	 {
-		 for(j=0; j<12; j++)
+		 for(j=0; j<TOTAL_VOLTAGES; j++)
 		 {
 			 if(voltages[i][j]>=CELL_OV)
 			 {
@@ -688,12 +691,47 @@ void HAL_runBalancing()
 	}
 }
 
+void HAL_runSOC()
+{
+	uint16_t i;
+	uint16_t j;
+	float32_t totalPackVoltage=0.0f;
+	for(i=0;i<TOTAL_IC;++i)
+	{
+		for(j=0;j<TOTAL_VOLTAGES;++j)
+		{
+			totalPackVoltage+=voltages[i][j];
+		}
+	}
+	SOC=fmath_polyval(voltageCoefficients, totalPackVoltage, voltagePolynomialDeg);
+}
+
+void HAL_runContactorControl()
+{
+	if(globalState==HAL_GLOBALSTDBY || globalState==HAL_GLOBALCONTACTORON)
+	{
+		//Turn on Contactor
+		HAL_GPIO_WritePin(CONTACTOR_GPIO_Port, CONTACTOR_Pin, 1);
+		//Turn on LED
+		HAL_GPIO_WritePin(LEDG_GPIO_Port, LEDG_Pin, 1);
+		//Change global State
+		globalState=HAL_GLOBALCONTACTORON;
+	}
+	else
+	{
+		//Turn off Contactor
+		HAL_GPIO_WritePin(CONTACTOR_GPIO_Port, CONTACTOR_Pin, 0);
+		//Turn off LED
+		HAL_GPIO_WritePin(LEDG_GPIO_Port, LEDG_Pin, 0);
+	}
+}
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	if(htim==&htim3)
 	{
 		  //Toggle LED
-		  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_6);
+		  HAL_GPIO_TogglePin(LEDR_GPIO_Port, LEDR_Pin);
 
 		  //TODO:Get current
 		  batteryPackCurrent=-0.51f;
@@ -707,11 +745,17 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		  //Voltage conversion
 		  HAL_readCellVoltages();
 
-		  //TODO: Temperature conversion
+		  //Temperature readout
 		  HAL_readCellTemperatures();
 
 		  //Run balancing algorithm and set appropriate bits
 		  HAL_runBalancing();
+
+		  //Run SOC algorithm
+		  HAL_runSOC();
+
+		  //Run Contactor control algorithm
+		  HAL_runContactorControl();
 	}
 }
 /* USER CODE END 4 */

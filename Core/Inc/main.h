@@ -66,9 +66,15 @@ static void HAL_readCellTemperatures();
 
 static void HAL_delay_us();
 
+static void HAL_runSOC();
+
+void HAL_runContactorControl();
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define CONTACTOR_Pin GPIO_PIN_13
+#define CONTACTOR_GPIO_Port GPIOC
 #define LEDR_Pin GPIO_PIN_6
 #define LEDR_GPIO_Port GPIOC
 #define LEDG_Pin GPIO_PIN_7
