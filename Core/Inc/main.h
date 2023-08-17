@@ -85,11 +85,11 @@ void HAL_runContactorControl();
 
 //#define fabsf(x) (((x)<0) ? -(x) : (x))
 
-#define TOTAL_IC			(1U)
+#define TOTAL_IC			(2U)
 #define TOTAL_VOLTAGES		(12U)
 #define TOTAL_TEMPERATURES	(8U)
-#define CELL_UV				(2.85f)
-#define CELL_OV				(3.65f)
+#define CELL_UV				(2.75f)
+#define CELL_OV				(3.55f)
 #define CELL_NONZEROV		(0.50f)
 #define ADG_728_ADDRESS		(0b1001100)
 #define HAL_BALVOLTAGETHRESHOLD (0.05f)

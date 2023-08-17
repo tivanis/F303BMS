@@ -594,7 +594,7 @@ void HAL_runBalancing()
 		{
 			for(j=0; j<TOTAL_VOLTAGES; j++)
 			{
-				if(voltages[i][j]<=vmin)
+				if(voltages[i][j]<=vmin && voltages[i][j]>=HAL_BALVOLTAGETHRESHOLD)
 				{
 					vmin=voltages[i][j];
 				}
